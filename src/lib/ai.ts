@@ -16,7 +16,7 @@ Rules:
 - No external dependencies or fonts`;
 
   const response = await client.chat.completions.create({
-    model: 'gpt-5.1',
+    model: 'gemini-3-flash-preview',
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: `Create a ${style} style icon for: ${prompt}` }

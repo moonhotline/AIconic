@@ -1,7 +1,28 @@
-import { pgTable, text, timestamp, integer, uuid } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, uuid, jsonb } from 'drizzle-orm/pg-core';
 
+// 会话表
+export const sessions = pgTable('sessions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  title: text('title').default('新会话'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// 消息表
+export const messages = pgTable('messages', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  sessionId: uuid('session_id').references(() => sessions.id, { onDelete: 'cascade' }).notNull(),
+  role: text('role').notNull(), // 'user' | 'assistant'
+  content: text('content').notNull(),
+  toolCalls: jsonb('tool_calls'), // 工具调用记录
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// 生成的图标表（关联会话）
 export const icons = pgTable('icons', {
   id: uuid('id').defaultRandom().primaryKey(),
+  sessionId: uuid('session_id').references(() => sessions.id, { onDelete: 'cascade' }),
+  messageId: uuid('message_id').references(() => messages.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   prompt: text('prompt').notNull(),
   svgContent: text('svg_content').notNull(),
@@ -11,9 +32,9 @@ export const icons = pgTable('icons', {
 
 export const iconFormats = pgTable('icon_formats', {
   id: uuid('id').defaultRandom().primaryKey(),
-  iconId: uuid('icon_id').references(() => icons.id),
-  format: text('format').notNull(), // svg, png, jpeg, webp
-  size: integer('size').notNull(),  // 32, 64, 128, 256, 512
+  iconId: uuid('icon_id').references(() => icons.id, { onDelete: 'cascade' }),
+  format: text('format').notNull(),
+  size: integer('size').notNull(),
   filePath: text('file_path').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 });

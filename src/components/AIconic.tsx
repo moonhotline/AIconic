@@ -3,16 +3,32 @@
 import { useState, useRef, useEffect } from 'react';
 import { gsap } from 'gsap';
 import { motion } from 'framer-motion';
+import IconPreview, { IconThumbnail } from './IconPreview';
+import ToolCallLog from './ToolCallLog';
+
+interface ToolLog {
+  name: string;
+  status: 'running' | 'done';
+  logs: string[];
+}
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
-  toolCalls?: { name: string; status: 'running' | 'done'; args?: Record<string, any> }[];
+  toolLogs?: ToolLog[];
 }
 
 interface GeneratedIcon {
   id: string;
   svg: string;
+  style?: string;
+}
+
+interface Session {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface Platform {
@@ -30,12 +46,22 @@ const platforms: Platform[] = [
 ];
 
 const toolDisplayNames: Record<string, string> = {
-  'generate_svg_icon': '生成图标',
+  'analyze_icon_main_body': '分析主体',
+  'generate_icon_set': '生成图标',
+  'generate_icon_by_main_body': '生成图标',
   'save_icon': '保存图标',
-  'change_icon_color': '修改颜色',
 };
 
+const promptSuggestions = [
+  { icon: '🚀', text: '火箭发射', desc: '科技启动图标' },
+  { icon: '💬', text: '智能聊天助手', desc: 'AI对话应用' },
+  { icon: '📊', text: '数据分析仪表盘', desc: '商业智能' },
+  { icon: '🎨', text: '创意设计工具', desc: '设计类应用' },
+];
+
 export default function AIconic() {
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -44,15 +70,38 @@ export default function AIconic() {
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>(platforms[0]);
   const [selectedFormat, setSelectedFormat] = useState('svg');
   const [selectedSize, setSelectedSize] = useState(256);
-  const [currentToolCalls, setCurrentToolCalls] = useState<Message['toolCalls']>([]);
+  const [currentToolLogs, setCurrentToolLogs] = useState<ToolLog[]>([]);
+  const [showSidebar, setShowSidebar] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // 加载会话列表，并自动恢复最近的会话
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const res = await fetch('/api/sessions');
+        const data = await res.json();
+        const sessionList = data.sessions || [];
+        setSessions(sessionList);
+        
+        // 自动加载最近的会话
+        if (sessionList.length > 0) {
+          const lastSession = sessionList[0]; // 已按 updatedAt 降序排列
+          await loadSession(lastSession.id);
+        }
+      } catch (e) {
+        console.error('Failed to load sessions:', e);
+      }
+    };
+    init();
+  }, []);
+
+  // 滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, currentToolCalls]);
+  }, [messages, currentToolLogs]);
 
-  // 新图标出现时的动画
+  // 图标动画
   useEffect(() => {
     if (generatedIcons.length > 0) {
       const lastIcon = document.querySelector('.icon-item:last-child');
@@ -62,22 +111,143 @@ export default function AIconic() {
     }
   }, [generatedIcons.length]);
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return;
-    const userMessage = input.trim();
+  const loadSessions = async () => {
+    try {
+      const res = await fetch('/api/sessions');
+      const data = await res.json();
+      setSessions(data.sessions || []);
+    } catch (e) {
+      console.error('Failed to load sessions:', e);
+    }
+  };
+
+  const loadSession = async (sessionId: string) => {
+    // 乐观更新：立即切换会话 ID 和清空状态
+    setCurrentSessionId(sessionId);
+    setShowSidebar(false);
+    
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`);
+      const data = await res.json();
+      setMessages(data.messages.map((m: any) => ({
+        role: m.role,
+        content: m.content,
+        toolCalls: m.toolCalls,
+      })));
+      setGeneratedIcons(data.icons.map((i: any) => ({
+        id: i.id,
+        svg: i.svgContent,
+        style: i.style,
+      })));
+      if (data.icons.length > 0) {
+        setSelectedIcon({ id: data.icons[0].id, svg: data.icons[0].svgContent });
+      } else {
+        setSelectedIcon(null);
+      }
+    } catch (e) {
+      console.error('Failed to load session:', e);
+    }
+  };
+
+  const createNewSession = async () => {
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: '新会话' }),
+      });
+      const data = await res.json();
+      const newSession = data.session;
+      
+      // 乐观更新：立即添加到会话列表
+      setSessions(prev => [newSession, ...prev]);
+      setCurrentSessionId(newSession.id);
+      // 注意：不在这里清空 messages，让调用方决定
+      
+      return newSession.id;
+    } catch (e) {
+      console.error('Failed to create session:', e);
+      return null;
+    }
+  };
+
+  const saveMessage = async (sessionId: string, message: Message, icons?: GeneratedIcon[]) => {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          generatedIcons: icons?.map(i => ({ svg: i.svg, style: i.style })),
+        }),
+      });
+      const data = await res.json();
+      
+      // 如果返回了新标题，更新会话列表
+      if (data.newTitle) {
+        setSessions(prev => prev.map(s => 
+          s.id === sessionId ? { ...s, title: data.newTitle } : s
+        ));
+      }
+    } catch (e) {
+      console.error('Failed to save message:', e);
+    }
+  };
+
+  const deleteSession = async (sessionId: string) => {
+    // 乐观更新：立即从列表移除
+    setSessions(prev => prev.filter(s => s.id !== sessionId));
+    
+    if (currentSessionId === sessionId) {
+      setCurrentSessionId(null);
+      setMessages([]);
+      setGeneratedIcons([]);
+      setSelectedIcon(null);
+    }
+    
+    try {
+      await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+    } catch (e) {
+      console.error('Failed to delete session:', e);
+      // 失败时重新加载
+      await loadSessions();
+    }
+  };
+
+  const handleSend = async (directMessage?: string) => {
+    const messageToSend = directMessage || input.trim();
+    if (!messageToSend || loading) return;
+    
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
+    setCurrentToolLogs([]);
+
+    // 确保有会话
+    let sessionId = currentSessionId;
+    if (!sessionId) {
+      sessionId = await createNewSession();
+      if (!sessionId) {
+        setLoading(false);
+        return;
+      }
+    }
+
+    const userMessage: Message = { role: 'user', content: messageToSend };
+    
+    // 立即显示用户消息，不等待保存
+    setMessages(prev => [...prev, userMessage]);
     setGeneratedIcons([]);
     setSelectedIcon(null);
-    setCurrentToolCalls([]);
+
+    // 异步保存用户消息（不阻塞 UI）
+    saveMessage(sessionId, userMessage);
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: `${userMessage}`,
+          message: messageToSend,
           history: messages.map(m => ({ role: m.role, content: m.content })),
           generateMultiple: true,
         }),
@@ -89,7 +259,8 @@ export default function AIconic() {
       const decoder = new TextDecoder();
       let buffer = '';
       let assistantContent = '';
-      const toolCallsForMessage: Message['toolCalls'] = [];
+      const toolLogsForMessage: ToolLog[] = [];
+      const newIcons: GeneratedIcon[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -107,25 +278,43 @@ export default function AIconic() {
             try {
               const event = JSON.parse(data);
               
+              // 工具开始
               if (event.type === 'tool_start') {
-                const newTool = { name: event.name, status: 'running' as const, args: event.args };
-                setCurrentToolCalls(prev => [...prev, newTool]);
-                toolCallsForMessage.push(newTool);
+                const newTool: ToolLog = { name: event.name, status: 'running', logs: [] };
+                setCurrentToolLogs(prev => [...prev, newTool]);
+                toolLogsForMessage.push(newTool);
               }
               
+              // 工具日志
+              if (event.type === 'tool_log') {
+                setCurrentToolLogs(prev => 
+                  prev.map(t => t.name === event.name && t.status === 'running'
+                    ? { ...t, logs: [...t.logs, event.message] }
+                    : t
+                  )
+                );
+                const tool = toolLogsForMessage.find(t => t.name === event.name && t.status === 'running');
+                if (tool) tool.logs.push(event.message);
+              }
+              
+              // 工具结果
               if (event.type === 'tool_result') {
-                setCurrentToolCalls(prev => 
+                setCurrentToolLogs(prev => 
                   prev.map(t => t.name === event.name && t.status === 'running' 
                     ? { ...t, status: 'done' as const } 
                     : t
                   )
                 );
-                // 更新 toolCallsForMessage 中的状态
-                const idx = toolCallsForMessage.findIndex(t => t.name === event.name && t.status === 'running');
-                if (idx !== -1) toolCallsForMessage[idx].status = 'done';
+                const tool = toolLogsForMessage.find(t => t.name === event.name && t.status === 'running');
+                if (tool) tool.status = 'done';
                 
                 if (event.svg) {
-                  const newIcon = { id: `icon-${Date.now()}-${Math.random()}`, svg: event.svg };
+                  const newIcon = { 
+                    id: `icon-${Date.now()}-${Math.random()}`, 
+                    svg: event.svg,
+                    style: event.style 
+                  };
+                  newIcons.push(newIcon);
                   setGeneratedIcons(prev => {
                     const updated = [...prev, newIcon];
                     if (updated.length === 1) setSelectedIcon(newIcon);
@@ -142,14 +331,20 @@ export default function AIconic() {
         }
       }
 
-      setMessages(prev => [...prev, { 
+      const assistantMessage: Message = { 
         role: 'assistant', 
         content: assistantContent || '已完成',
-        toolCalls: toolCallsForMessage
-      }]);
-      setCurrentToolCalls([]);
+        toolLogs: toolLogsForMessage
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+      setCurrentToolLogs([]);
+
+      // 保存助手消息和图标
+      await saveMessage(sessionId, assistantMessage, newIcons);
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'assistant', content: '生成失败，请重试。' }]);
+      const errorMessage: Message = { role: 'assistant', content: '生成失败，请重试。' };
+      setMessages(prev => [...prev, errorMessage]);
+      await saveMessage(sessionId, errorMessage);
     } finally {
       setLoading(false);
     }
@@ -177,60 +372,76 @@ export default function AIconic() {
     }
   };
 
-  // 渲染工具调用标签
-  const renderToolCalls = (toolCalls: Message['toolCalls'], isCurrentlyRunning = false) => {
-    if (!toolCalls || toolCalls.length === 0) return null;
-    return (
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
-        {toolCalls.map((tool, idx) => (
-          <div
-            key={idx}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '4px 10px',
-              background: tool.status === 'running' ? '#fef3c7' : '#ecfdf5',
-              border: `1px solid ${tool.status === 'running' ? '#fcd34d' : '#6ee7b7'}`,
-              borderRadius: '6px',
-              fontSize: '12px',
-              color: tool.status === 'running' ? '#92400e' : '#047857',
-            }}
-          >
-            {tool.status === 'running' ? (
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                style={{ width: '12px', height: '12px' }}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </motion.div>
-            ) : (
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            )}
-            <span>{toolDisplayNames[tool.name] || tool.name}</span>
-            {tool.args?.style && <span style={{ opacity: 0.7 }}>({tool.args.style})</span>}
-          </div>
-        ))}
-      </div>
-    );
+  const handleNewChat = async () => {
+    setCurrentSessionId(null);
+    setMessages([]);
+    setGeneratedIcons([]);
+    setSelectedIcon(null);
   };
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#f8fafc' }}>
+      {/* 会话侧边栏 */}
+      {showSidebar && (
+        <div style={{ width: '260px', background: '#fff', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '16px', borderBottom: '1px solid #f3f4f6' }}>
+            <button
+              onClick={handleNewChat}
+              style={{ width: '100%', padding: '10px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 500 }}
+            >
+              + 新会话
+            </button>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
+            {sessions.map(session => (
+              <div
+                key={session.id}
+                onClick={() => loadSession(session.id)}
+                style={{
+                  padding: '12px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  marginBottom: '4px',
+                  background: currentSessionId === session.id ? '#eef2ff' : 'transparent',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span style={{ fontSize: '14px', color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {session.title}
+                </span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); deleteSession(session.id); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: '4px' }}
+                >
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 左侧聊天面板 */}
       <div style={{ width: '360px', display: 'flex', flexDirection: 'column', background: '#fff', borderRight: '1px solid #e5e7eb' }}>
         {/* 头部 */}
         <div style={{ height: '56px', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f3f4f6' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              onClick={() => setShowSidebar(!showSidebar)}
+              style={{ padding: '6px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '6px', color: '#6b7280' }}
+            >
+              <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
             <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 600, fontSize: '14px' }}>A</div>
             <span style={{ fontWeight: 600, color: '#1f2937' }}>AIconic</span>
           </div>
-          <button onClick={() => { setMessages([]); setGeneratedIcons([]); setSelectedIcon(null); }} style={{ padding: '6px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '6px', color: '#9ca3af' }}>
+          <button onClick={handleNewChat} style={{ padding: '6px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '6px', color: '#9ca3af' }}>
             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           </button>
         </div>
@@ -242,7 +453,23 @@ export default function AIconic() {
               <div style={{ width: '48px', height: '48px', margin: '0 auto 12px', borderRadius: '12px', background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
               </div>
-              <p style={{ fontSize: '14px' }}>描述你想要的图标</p>
+              <p style={{ fontSize: '14px', marginBottom: '20px' }}>描述你想要的图标</p>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', padding: '0 8px' }}>
+                {promptSuggestions.map((item, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleSend(item.text)}
+                    style={{ padding: '12px 8px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#f3f4f6'; e.currentTarget.style.borderColor = '#d1d5db'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = '#f9fafb'; e.currentTarget.style.borderColor = '#e5e7eb'; }}
+                  >
+                    <div style={{ fontSize: '16px', marginBottom: '4px' }}>{item.icon}</div>
+                    <div style={{ fontSize: '12px', fontWeight: 500, color: '#374151', marginBottom: '2px' }}>{item.text}</div>
+                    <div style={{ fontSize: '10px', color: '#9ca3af' }}>{item.desc}</div>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           
@@ -250,11 +477,8 @@ export default function AIconic() {
             {messages.map((msg, idx) => (
               <motion.div key={idx} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
                 <div style={{ maxWidth: '90%' }}>
-                  {/* 工具调用显示在气泡上方 */}
-                  {msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (
-                    <div style={{ marginBottom: '8px' }}>
-                      {renderToolCalls(msg.toolCalls)}
-                    </div>
+                  {msg.role === 'assistant' && msg.toolLogs && msg.toolLogs.length > 0 && (
+                    <ToolCallLog tools={msg.toolLogs} />
                   )}
                   <div style={{
                     padding: '10px 14px',
@@ -272,18 +496,12 @@ export default function AIconic() {
               </motion.div>
             ))}
             
-            {/* 当前正在执行的工具调用 */}
-            {loading && (currentToolCalls.length > 0 || true) && (
+            {loading && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ display: 'flex', justifyContent: 'flex-start' }}>
                 <div style={{ maxWidth: '90%' }}>
-                  {/* 工具调用显示在上方 */}
-                  {currentToolCalls.length > 0 && (
-                    <div style={{ marginBottom: '8px' }}>
-                      {renderToolCalls(currentToolCalls, true)}
-                    </div>
-                  )}
+                  {currentToolLogs.length > 0 && <ToolCallLog tools={currentToolLogs} />}
                   <div style={{ background: '#f3f4f6', padding: '10px 14px', borderRadius: '16px', borderBottomLeftRadius: '4px', color: '#6b7280', fontSize: '14px' }}>
-                    {currentToolCalls.length > 0 ? '正在生成图标...' : '思考中...'}
+                    {currentToolLogs.length > 0 ? '正在生成图标...' : '思考中...'}
                   </div>
                 </div>
               </motion.div>
@@ -305,7 +523,7 @@ export default function AIconic() {
               style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: '14px', color: '#1f2937' }}
             />
             <button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={loading || !input.trim()}
               style={{ width: '32px', height: '32px', borderRadius: '8px', background: loading || !input.trim() ? '#e5e7eb' : '#6366f1', border: 'none', cursor: loading || !input.trim() ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
             >
@@ -352,21 +570,19 @@ export default function AIconic() {
                   <motion.div
                     key={icon.id}
                     className="icon-item"
-                    onClick={() => setSelectedIcon(icon)}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
-                    style={{ position: 'relative', background: '#fff', borderRadius: '12px', padding: '16px', cursor: 'pointer', border: selectedIcon?.id === icon.id ? '2px solid #6366f1' : '2px solid #f3f4f6', boxShadow: selectedIcon?.id === icon.id ? '0 4px 12px rgba(99, 102, 241, 0.15)' : 'none' }}
                   >
-                    <div style={{ width: '100%', aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }} dangerouslySetInnerHTML={{ __html: icon.svg.replace(/width="[^"]*"/, 'width="100%"').replace(/height="[^"]*"/, 'height="100%"') }} />
-                    {selectedIcon?.id === icon.id && (
-                      <div style={{ position: 'absolute', top: '8px', right: '8px', width: '20px', height: '20px', background: '#6366f1', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="#fff"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-                      </div>
-                    )}
-                    <span style={{ position: 'absolute', bottom: '8px', left: '8px', fontSize: '10px', color: '#9ca3af' }}>#{idx + 1}</span>
+                    <IconThumbnail
+                      svg={icon.svg}
+                      selected={selectedIcon?.id === icon.id}
+                      onClick={() => setSelectedIcon(icon)}
+                      label={icon.style || ['modern', 'gradient', 'minimal', 'neon'][idx]}
+                    />
                   </motion.div>
                 ))}
-                {/* 加载中的占位卡片 */}
                 {loading && generatedIcons.length < 4 && Array.from({ length: 4 - generatedIcons.length }).map((_, idx) => (
                   <div key={`placeholder-${idx}`} style={{ background: '#f9fafb', borderRadius: '12px', padding: '16px', border: '2px dashed #e5e7eb', aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }} style={{ width: '24px', height: '24px', color: '#d1d5db' }}>
@@ -380,9 +596,12 @@ export default function AIconic() {
               {selectedIcon && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ background: '#fff', borderRadius: '12px', padding: '16px', border: '1px solid #f3f4f6' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
-                    <div style={{ width: '80px', height: '80px', background: '#f9fafb', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px' }}>
-                      <div style={{ width: '100%', height: '100%' }} dangerouslySetInnerHTML={{ __html: selectedIcon.svg.replace(/width="[^"]*"/, 'width="100%"').replace(/height="[^"]*"/, 'height="100%"') }} />
-                    </div>
+                    <IconPreview 
+                      svg={selectedIcon.svg} 
+                      size={80} 
+                      showBackground 
+                      style={{ borderRadius: 8, flexShrink: 0 }}
+                    />
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '24px' }}>
                       <div>
                         <label style={{ display: 'block', fontSize: '12px', color: '#6b7280', marginBottom: '6px' }}>格式</label>

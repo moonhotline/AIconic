@@ -1,33 +1,218 @@
-// 工具函数实现
+/**
+ * ============================================
+ * 工具函数 (Tools)
+ * ============================================
+ * 
+ * 这是 Agent 可以调用的工具集合。
+ * 
+ * 工作流程:
+ * 1. 在这里定义工具函数 (export)
+ * 2. 在 agent.ts 的 toolDefinitions 中声明工具 (告诉 AI 有哪些工具可用)
+ * 3. 在 agent.ts 的 toolFunctions 中映射工具 (实际执行的函数)
+ * 
+ * Agent 调用流程:
+ * 用户输入 → AI 分析 → 选择工具 → 执行工具函数 → 返回结果
+ */
+
+import OpenAI from 'openai';
 import { db } from './db';
 import { icons } from '@/db/schema';
 import { eq, desc, like } from 'drizzle-orm';
-import { generateHighQualitySvg } from './iconGenerator';
+import { generateIconFromMainBody, COLOR_SCHEMES } from './iconGenerator';
+import type { InferInsertModel } from 'drizzle-orm';
 
-// 1. 生成高质量 SVG 图标
-export async function generateSvgIcon(params: { 
-  description: string; 
-  style: 'modern' | 'gradient' | 'glassmorphism' | 'neon' | 'minimal';
-  primaryColor?: string;
-  secondaryColor?: string;
-}) {
-  const { description, style = 'gradient', primaryColor, secondaryColor } = params;
-  
-  const svg = await generateHighQualitySvg({
-    description,
+type NewIcon = InferInsertModel<typeof icons>;
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
+  baseURL: process.env.OPENAI_BASE_URL,
+});
+
+// ============================================
+// 工具 1: 分析图标主体元素
+// ============================================
+/**
+ * 根据用户的抽象描述，分析出具体的视觉主体元素
+ * 
+ * 就像好的摄影作品需要突出主体一样，
+ * 好的图标也需要一个清晰的视觉焦点。
+ * 
+ * 示例:
+ * - "安全" → 盾牌、锁、钥匙
+ * - "金融" → 硬币、金条、钱包
+ * - "云存储" → 云朵、服务器、上传箭头
+ * - "社交" → 对话气泡、人物、连接
+ * 
+ * @param params.userPrompt - 用户的抽象描述
+ * @returns 具体的主体元素列表
+ */
+export async function analyzeIconMainBody(params: {
+  userPrompt: string;
+}): Promise<{
+  success: boolean;
+  mainBodies?: string[];
+  reasoning?: string;
+  error?: string;
+}> {
+  const { userPrompt } = params;
+
+  console.log(`[Tool:analyzeIconMainBody] 分析: "${userPrompt}"`);
+
+  try {
+    const response = await client.chat.completions.create({
+      model: 'gpt-5.1',
+      messages: [
+        {
+          role: 'system',
+          content: `你是图标设计专家。根据用户的抽象概念，分析出 4 个最适合的视觉主体元素。
+
+规则:
+1. 选择简洁、易识别的几何形状
+2. 每个主体元素用 2-4 个字描述
+3. 按视觉表现力排序
+4. 返回 JSON 格式
+
+示例:
+用户: "安全防护"
+输出: {"mainBodies": ["盾牌", "锁", "钥匙", "城墙"], "reasoning": "安全概念最直观的视觉符号"}
+
+用户: "云存储"  
+输出: {"mainBodies": ["云朵", "服务器", "上传箭头", "文件夹"], "reasoning": "云和存储的组合意象"}
+
+用户: "金融理财"
+输出: {"mainBodies": ["硬币", "金条", "钱包", "增长曲线"], "reasoning": "财富和增值的视觉符号"}`
+        },
+        {
+          role: 'user',
+          content: `分析 "${userPrompt}" 的视觉主体元素:`
+        }
+      ],
+      temperature: 0.5,
+      max_tokens: 200,
+      response_format: { type: 'json_object' },
+    });
+
+    const content = response.choices[0]?.message?.content || '{}';
+    const result = JSON.parse(content);
+
+    if (!result.mainBodies || result.mainBodies.length === 0) {
+      return {
+        success: false,
+        error: '无法分析出主体元素',
+      };
+    }
+
+    console.log(`[Tool:analyzeIconMainBody] 结果: ${result.mainBodies.join(', ')}`);
+
+    return {
+      success: true,
+      mainBodies: result.mainBodies,
+      reasoning: result.reasoning,
+    };
+
+  } catch (error) {
+    console.error('[Tool:analyzeIconMainBody] 错误:', error);
+    return {
+      success: false,
+      error: '分析失败，请重试',
+    };
+  }
+}
+
+// ============================================
+// 工具 2: 根据主体元素生成图标
+// ============================================
+/**
+ * 根据分析出的主体元素，生成高质量 SVG 图标
+ * 
+ * @param params.mainBody - 主体元素 (如 "盾牌")
+ * @param params.style - 风格 (appstore/material/fluent/neon)
+ * @returns SVG 图标代码
+ */
+export async function generateIconByMainBody(params: {
+  mainBody: string;
+  style: 'appstore' | 'material' | 'fluent' | 'neon';
+}): Promise<{
+  success: boolean;
+  svg?: string;
+  mainBody?: string;
+  style?: string;
+  styleName?: string;
+  error?: string;
+}> {
+  const { mainBody, style = 'neon' } = params;
+  const config = COLOR_SCHEMES[style] || COLOR_SCHEMES.neon;
+
+  console.log(`[Tool:generateIconByMainBody] 生成: ${mainBody}, 风格: ${config.name}`);
+
+  const svg = await generateIconFromMainBody({
+    mainBody,
     style,
-    primaryColor,
-    secondaryColor,
   });
 
   if (!svg) {
-    return { success: false, error: '生成失败，请重试' };
+    return { success: false, error: '生成失败' };
   }
 
-  return { success: true, svg, description, style };
+  return {
+    success: true,
+    svg,
+    mainBody,
+    style,
+    styleName: config.name,
+  };
 }
 
-// 2. 保存图标到数据库
+// ============================================
+// 工具 3: 一键生成 4 种风格图标
+// ============================================
+/**
+ * 根据主体元素，一次性生成 4 种平台风格的图标
+ * 
+ * @param params.mainBody - 主体元素
+ * @returns 4 个不同风格的 SVG 图标
+ */
+export async function generateIconSet(params: {
+  mainBody: string;
+}): Promise<{
+  success: boolean;
+  icons?: Array<{ svg: string; style: string; styleName: string; platform: string }>;
+  error?: string;
+}> {
+  const { mainBody } = params;
+
+  console.log(`[Tool:generateIconSet] 批量生成: ${mainBody}`);
+
+  const styles = ['appstore', 'material', 'fluent', 'neon'] as const;
+  
+  const results = await Promise.all(
+    styles.map(async (style) => {
+      const config = COLOR_SCHEMES[style];
+      const svg = await generateIconFromMainBody({ mainBody, style });
+      return {
+        svg: svg || '',
+        style,
+        styleName: config.name,
+        platform: config.platform,
+      };
+    })
+  );
+
+  const validIcons = results.filter(r => r.svg);
+
+  if (validIcons.length === 0) {
+    return { success: false, error: '生成失败' };
+  }
+
+  return {
+    success: true,
+    icons: validIcons,
+  };
+}
+
+// ============================================
+// 工具 4: 保存图标
+// ============================================
 export async function saveIcon(params: {
   name: string;
   svgContent: string;
@@ -39,12 +224,14 @@ export async function saveIcon(params: {
     svgContent: params.svgContent,
     prompt: params.prompt,
     style: params.style,
-  }).returning();
+  } as NewIcon).returning();
   
   return { success: true, iconId: icon.id, message: `图标 "${params.name}" 已保存` };
 }
 
-// 3. 搜索已保存的图标
+// ============================================
+// 工具 5: 搜索图标
+// ============================================
 export async function searchIcons(params: { keyword: string }) {
   const results = await db.select()
     .from(icons)
@@ -58,7 +245,9 @@ export async function searchIcons(params: { keyword: string }) {
   };
 }
 
-// 4. 获取最近的图标
+// ============================================
+// 工具 6: 获取最近图标
+// ============================================
 export async function getRecentIcons(params: { limit?: number }) {
   const results = await db.select()
     .from(icons)
@@ -71,17 +260,10 @@ export async function getRecentIcons(params: { limit?: number }) {
   };
 }
 
-// 5. 删除图标
+// ============================================
+// 工具 7: 删除图标
+// ============================================
 export async function deleteIcon(params: { iconId: string }) {
   await db.delete(icons).where(eq(icons.id, params.iconId));
-  return { success: true, message: `图标已删除` };
-}
-
-// 6. 修改图标颜色
-export async function changeIconColor(params: { svgContent: string; newColor: string }) {
-  const newSvg = params.svgContent
-    .replace(/stroke="[^"]*"/g, `stroke="${params.newColor}"`)
-    .replace(/fill="(?!none)[^"]*"/g, `fill="${params.newColor}"`);
-  
-  return { success: true, svg: newSvg, color: params.newColor };
+  return { success: true, message: '图标已删除' };
 }

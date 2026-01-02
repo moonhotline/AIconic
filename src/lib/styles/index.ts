@@ -12,12 +12,21 @@ import { StylePlugin, StyleConfig } from './types';
 // 导入所有风格插件
 import appstoreStyle from './appstore';
 import materialStyle from './material';
-import fluentStyle from './fluent';
 import neonStyle from './neon';
+import sereneStyle from './vibrant';
+import atelierStyle from './elegant';
 import glassmorphismStyle from './glassmorphism';
 import neumorphismStyle from './neumorphism';
 import isometricStyle from './isometric';
 import gradientStyle from './gradient';
+// 新增风格
+import minimalStyle from './minimal';
+import cyberpunkStyle from './cyberpunk';
+import retroStyle from './retro';
+import watercolorStyle from './watercolor';
+import clayStyle from './clay';
+import auroraStyle from './aurora';
+import metallicStyle from './metallic';
 
 // 风格插件注册表
 const stylePlugins: Map<string, StylePlugin> = new Map();
@@ -25,12 +34,21 @@ const stylePlugins: Map<string, StylePlugin> = new Map();
 // 注册内置风格（默认4个 + 新增4个）
 stylePlugins.set('appstore', appstoreStyle);
 stylePlugins.set('material', materialStyle);
-stylePlugins.set('fluent', fluentStyle);
 stylePlugins.set('neon', neonStyle);
+stylePlugins.set('serene', sereneStyle);
+stylePlugins.set('atelier', atelierStyle);
 stylePlugins.set('glassmorphism', glassmorphismStyle);
 stylePlugins.set('neumorphism', neumorphismStyle);
 stylePlugins.set('isometric', isometricStyle);
 stylePlugins.set('gradient', gradientStyle);
+// 注册新增风格
+stylePlugins.set('minimal', minimalStyle);
+stylePlugins.set('cyberpunk', cyberpunkStyle);
+stylePlugins.set('retro', retroStyle);
+stylePlugins.set('watercolor', watercolorStyle);
+stylePlugins.set('clay', clayStyle);
+stylePlugins.set('aurora', auroraStyle);
+stylePlugins.set('metallic', metallicStyle);
 
 /**
  * 获取风格插件

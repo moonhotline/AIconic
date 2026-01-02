@@ -126,12 +126,12 @@ export async function analyzeIconMainBody(params: {
  * 根据分析出的主体元素，生成高质量 SVG 图标
  * 
  * @param params.mainBody - 主体元素 (如 "盾牌")
- * @param params.style - 风格 (appstore/material/fluent/neon)
+ * @param params.style - 风格 (appstore/material/serene/atelier)
  * @returns SVG 图标代码
  */
 export async function generateIconByMainBody(params: {
   mainBody: string;
-  style: 'appstore' | 'material' | 'fluent' | 'neon';
+  style: 'appstore' | 'material' | 'serene' | 'atelier';
 }): Promise<{
   success: boolean;
   svg?: string;
@@ -188,7 +188,7 @@ export async function generateIconSet(params: {
   // 使用自定义风格或默认风格
   const stylesToUse = customStyles && customStyles.length > 0 
     ? customStyles 
-    : ['appstore', 'material', 'fluent', 'neon'];
+    : ['appstore', 'material', 'serene', 'atelier'];
 
   // 确定每个风格使用的主体
   // 如果有 mainBodies 数组，每个风格用不同主体；否则都用同一个 mainBody

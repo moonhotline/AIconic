@@ -1,3 +1,6 @@
+# Welcome to AIconic!
+<img width="1860" height="915" alt="图片" src="https://github.com/user-attachments/assets/643a1b3e-3973-4cd4-aaa6-b41ecd130547" />
+
 ## 如何运行
 
 ```

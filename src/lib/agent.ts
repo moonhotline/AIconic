@@ -70,8 +70,8 @@ const toolDefinitions: OpenAI.ChatCompletionTool[] = [
           },
           style: { 
             type: 'string', 
-            enum: ['appstore', 'material', 'fluent', 'neon'],
-            description: '风格: appstore(数字静物)、material(Material设计)、fluent(Fluent插画)、neon(霓虹发光)' 
+            enum: ['appstore', 'material', 'serene', 'atelier'],
+            description: '风格: appstore(数字静物)、material(Material设计)、serene(静谧深邃)、atelier(匠心臻品)' 
           },
         },
         required: ['mainBody', 'style'],
@@ -155,7 +155,7 @@ export async function runAgentStream(
   // 获取可用风格列表
   const availableStyles = customStyles && customStyles.length > 0 
     ? customStyles 
-    : ['appstore', 'material', 'fluent', 'neon'];
+    : ['appstore', 'material', 'serene', 'atelier'];
   
   const styleEnumStr = availableStyles.join(', ');
   

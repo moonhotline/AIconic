@@ -16,16 +16,37 @@ export async function POST(request: NextRequest) {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
+        let isClosed = false;
+        const safeEnqueue = (data: string) => {
+          if (!isClosed) {
+            try {
+              controller.enqueue(encoder.encode(data));
+            } catch (e) {
+              // Controller 可能已关闭，忽略错误
+            }
+          }
+        };
+        const safeClose = () => {
+          if (!isClosed) {
+            try {
+              controller.close();
+              isClosed = true;
+            } catch (e) {
+              // Controller 可能已关闭，忽略错误
+            }
+          }
+        };
+
         try {
           await runAgentStream(message, history, generateMultiple, styles, (event) => {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+            safeEnqueue(`data: ${JSON.stringify(event)}\n\n`);
           });
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-          controller.close();
+          safeEnqueue('data: [DONE]\n\n');
+          safeClose();
         } catch (error) {
           console.error('Stream error:', error);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: 'Internal error' })}\n\n`));
-          controller.close();
+          safeEnqueue(`data: ${JSON.stringify({ type: 'error', error: 'Internal error' })}\n\n`);
+          safeClose();
         }
       },
     });

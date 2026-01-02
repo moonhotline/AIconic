@@ -21,12 +21,20 @@ const styles = [
     features: ['适应性裁剪', '安全边距', '品牌色彩']
   },
   {
-    name: 'Microsoft',
-    style: 'Fluent',
-    tag: 'Windows',
-    gradient: 'linear-gradient(135deg, #0078D4, #50E6FF)',
-    desc: '清晰轮廓 · 定向光源 · 等距视角',
-    features: ['Mica 背景', '2px+ 描边', '动态光效']
+    name: 'Vibrant',
+    style: '活力渐变',
+    tag: 'Vibrant',
+    gradient: 'linear-gradient(135deg, #FF6B6B, #4ECDC4)',
+    desc: '大胆色彩 · 流畅渐变 · 现代感',
+    features: ['多色渐变', '视觉冲击', '活力设计']
+  },
+  {
+    name: 'Elegant',
+    style: '优雅精致',
+    tag: 'Elegant',
+    gradient: 'linear-gradient(135deg, #6C5CE7, #A29BFE)',
+    desc: '柔和配色 · 精致细节 · 高级感',
+    features: ['精致渐变', '优雅设计', '品质感']
   },
   {
     name: 'Creative',
@@ -90,7 +98,7 @@ export default function FeaturesSection() {
       <div style={{
         position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
         width: '800px', height: '600px',
-        background: `radial-gradient(ellipse at center, ${activeIdx === 0 ? 'rgba(0,122,255,0.05)' : activeIdx === 1 ? 'rgba(52,168,83,0.05)' : activeIdx === 2 ? 'rgba(0,120,212,0.05)' : 'rgba(255,0,110,0.05)'} 0%, transparent 60%)`,
+        background: `radial-gradient(ellipse at center, ${activeIdx === 0 ? 'rgba(0,122,255,0.05)' : activeIdx === 1 ? 'rgba(52,168,83,0.05)' : activeIdx === 2 ? 'rgba(255,107,107,0.05)' : activeIdx === 3 ? 'rgba(108,92,231,0.05)' : 'rgba(255,0,110,0.05)'} 0%, transparent 60%)`,
         filter: 'blur(60px)', pointerEvents: 'none', transition: 'background 0.6s ease'
       }} />
 
@@ -111,7 +119,7 @@ export default function FeaturesSection() {
             fontSize: '44px', fontWeight: 700, color: '#111', marginBottom: '16px',
             opacity: animated ? 1 : 0
           }}>
-            四大平台风格
+            多种设计风格
           </h2>
           <p className="features-subtitle" style={{ 
             fontSize: '17px', color: '#64748b', maxWidth: '400px', margin: '0 auto',

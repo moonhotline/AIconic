@@ -23,7 +23,7 @@ interface StyleSelectorProps {
 }
 
 // 默认选中的风格
-const DEFAULT_STYLES = ['appstore', 'material', 'fluent', 'neon'];
+const DEFAULT_STYLES = ['appstore', 'material', 'isometric', 'neumorphism'];
 
 export default function StyleSelector({ 
   selectedStyles, 
